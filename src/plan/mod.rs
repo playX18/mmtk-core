@@ -14,7 +14,10 @@
 //! For more about implementing a plan, it is recommended to read the [MMTk tutorial](/docs/tutorial/Tutorial.md).
 
 mod barriers;
-pub use barriers::BarrierSelector;
+pub use barriers::{
+    BarrierSelector, GlobalLogBuffer, LogBuffer, LogBufferBarrier, LogBufferBarrierSemantics,
+    LogBufferObjectIter, LoggedObject,
+};
 
 mod gc_work;
 
@@ -46,6 +49,7 @@ mod sticky;
 
 mod compressor;
 mod concurrent;
+mod deferred_reference_counting;
 mod immix;
 mod markcompact;
 mod marksweep;
@@ -59,6 +63,7 @@ pub(crate) use generational::global::GenerationalPlan;
 // Expose plan constraints as public. Though a binding can get them from plan.constraints(),
 // it is possible for performance reasons that they want the constraints as constants.
 
+pub use deferred_reference_counting::DRC_CONSTRAINTS;
 pub use generational::copying::GENCOPY_CONSTRAINTS;
 pub use generational::immix::GENIMMIX_CONSTRAINTS;
 pub use immix::IMMIX_CONSTRAINTS;

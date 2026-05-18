@@ -44,6 +44,13 @@ pub fn test_allocator_info() {
                         bump_pointer_offset
                     );
                 }
+                PlanSelector::DeferredReferenceCounting => {
+                    if cfg!(feature = "malloc_mark_sweep") {
+                        assert!(matches!(allocator_info, AllocatorInfo::None))
+                    } else {
+                        assert!(matches!(allocator_info, AllocatorInfo::Unimplemented))
+                    }
+                }
                 PlanSelector::MarkSweep => {
                     if cfg!(feature = "malloc_mark_sweep") {
                         // We provide no info for a malloc allocator

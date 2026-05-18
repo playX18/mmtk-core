@@ -49,5 +49,7 @@ pub mod util;
 pub mod vm;
 
 pub use crate::plan::{
-    AllocationSemantics, BarrierSelector, Mutator, MutatorContext, ObjectQueue, Plan,
+    AllocationSemantics, BarrierSelector, GlobalLogBuffer, LogBuffer, LogBufferBarrier,
+    LogBufferBarrierSemantics, LogBufferObjectIter, LoggedObject, Mutator, MutatorContext,
+    ObjectQueue, Plan,
 };

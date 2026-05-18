@@ -26,6 +26,7 @@ pub fn initialize_side_metadata<VM: VMBinding>(options: &Options) {
         *VM::VMObjectModel::LOCAL_FORWARDING_POINTER_SPEC,
         *VM::VMObjectModel::LOCAL_FORWARDING_BITS_SPEC,
         *VM::VMObjectModel::LOCAL_MARK_BIT_SPEC,
+        *VM::VMObjectModel::LOCAL_REFERENCE_COUNT_SPEC,
         #[cfg(feature = "object_pinning")]
         *VM::VMObjectModel::LOCAL_PINNING_BIT_SPEC,
         *VM::VMObjectModel::LOCAL_LOS_MARK_NURSERY_SPEC,

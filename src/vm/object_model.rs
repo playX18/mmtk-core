@@ -110,6 +110,14 @@ pub trait ObjectModel<VM: VMBinding> {
     /// OpenJDK binding prefer to have the mark bits in side metadata to allow for bulk operations.
     const LOCAL_MARK_BIT_SPEC: VMLocalMarkBitSpec;
 
+    /// A local word-size metadata for the reference count, used by reference counting plans. A binding
+    /// may place this metadata either in the object header or in side metadata.
+    const LOCAL_REFERENCE_COUNT_SPEC: VMLocalReferenceCountSpec;
+
+    /// A global word-size side metadata for cyclic reference counting. This is only mapped for plans
+    /// that explicitly require it.
+    const GLOBAL_CYCLIC_REFERENCE_COUNT_SPEC: VMGlobalCyclicReferenceCountSpec;
+
     #[cfg(feature = "object_pinning")]
     /// A local 1-bit metadata specification for the pinning bit, used by plans that need to pin objects. It is
     /// generally in side metadata.
@@ -617,6 +625,127 @@ pub mod specs {
         0,
         LOG_MIN_OBJECT_SIZE
     );
+    /// Local metadata for spaces that need a reference count.
+    pub struct VMLocalReferenceCountSpec(MetadataSpec);
+    impl VMLocalReferenceCountSpec {
+        /// Whether this spec is global or local.
+        pub const IS_GLOBAL: bool = false;
+
+        const fn check_log_num_bits(log_num_bits: usize) {
+            assert!(log_num_bits <= LOG_BITS_IN_WORD);
+        }
+
+        /// Declare that the VM uses in-header metadata for this metadata type.
+        pub const fn in_header(bit_offset: isize, log_num_bits: usize) -> Self {
+            Self::check_log_num_bits(log_num_bits);
+            Self(MetadataSpec::InHeader(HeaderMetadataSpec {
+                bit_offset,
+                num_of_bits: 1 << log_num_bits,
+            }))
+        }
+
+        /// Declare that the VM uses side metadata for this metadata type,
+        /// and the side metadata is the first local side metadata.
+        pub const fn side_first(log_num_bits: usize) -> Self {
+            Self::check_log_num_bits(log_num_bits);
+            Self(MetadataSpec::OnSide(SideMetadataSpec {
+                name: "VMLocalReferenceCountSpec",
+                is_global: Self::IS_GLOBAL,
+                offset: LOCAL_SIDE_METADATA_VM_BASE_OFFSET,
+                log_num_of_bits: log_num_bits,
+                log_bytes_in_region: LOG_MIN_OBJECT_SIZE as usize,
+            }))
+        }
+
+        /// Declare that the VM uses side metadata for this metadata type,
+        /// and the side metadata should be laid out after the given local side metadata spec.
+        pub const fn side_after(spec: &MetadataSpec, log_num_bits: usize) -> Self {
+            Self::check_log_num_bits(log_num_bits);
+            assert!(spec.is_on_side());
+            let side_spec = spec.extract_side_spec();
+            assert!(side_spec.is_global == Self::IS_GLOBAL);
+            Self(MetadataSpec::OnSide(SideMetadataSpec {
+                name: "VMLocalReferenceCountSpec",
+                is_global: Self::IS_GLOBAL,
+                offset: side_metadata_offset_after(side_spec),
+                log_num_of_bits: log_num_bits,
+                log_bytes_in_region: LOG_MIN_OBJECT_SIZE as usize,
+            }))
+        }
+
+        /// Return the inner `[crate::util::metadata::MetadataSpec]` for the metadata type.
+        pub const fn as_spec(&self) -> &MetadataSpec {
+            &self.0
+        }
+
+        /// Return the number of bits for the metadata type.
+        pub const fn num_bits(&self) -> usize {
+            match &self.0 {
+                MetadataSpec::InHeader(spec) => spec.num_of_bits,
+                MetadataSpec::OnSide(spec) => 1 << spec.log_num_of_bits,
+            }
+        }
+    }
+    impl std::ops::Deref for VMLocalReferenceCountSpec {
+        type Target = MetadataSpec;
+        fn deref(&self) -> &Self::Target {
+            self.as_spec()
+        }
+    }
+
+    /// 1-word global side metadata for spaces that need a cyclic reference count.
+    pub struct VMGlobalCyclicReferenceCountSpec(MetadataSpec);
+    impl VMGlobalCyclicReferenceCountSpec {
+        /// The number of bits (in log2) that are needed for the spec.
+        pub const LOG_NUM_BITS: usize = LOG_BITS_IN_WORD;
+
+        /// Cyclic reference count metadata is global side metadata.
+        pub const IS_GLOBAL: bool = true;
+
+        /// Declare that the VM uses side metadata for this metadata type,
+        /// and the side metadata is the first global side metadata.
+        pub const fn side_first() -> Self {
+            Self(MetadataSpec::OnSide(SideMetadataSpec {
+                name: "VMGlobalCyclicReferenceCountSpec",
+                is_global: Self::IS_GLOBAL,
+                offset: GLOBAL_SIDE_METADATA_VM_BASE_OFFSET,
+                log_num_of_bits: Self::LOG_NUM_BITS,
+                log_bytes_in_region: LOG_MIN_OBJECT_SIZE as usize,
+            }))
+        }
+
+        /// Declare that the VM uses side metadata for this metadata type,
+        /// and the side metadata should be laid out after the given global side metadata spec.
+        pub const fn side_after(spec: &MetadataSpec) -> Self {
+            assert!(spec.is_on_side());
+            let side_spec = spec.extract_side_spec();
+            assert!(side_spec.is_global == Self::IS_GLOBAL);
+            Self(MetadataSpec::OnSide(SideMetadataSpec {
+                name: "VMGlobalCyclicReferenceCountSpec",
+                is_global: Self::IS_GLOBAL,
+                offset: side_metadata_offset_after(side_spec),
+                log_num_of_bits: Self::LOG_NUM_BITS,
+                log_bytes_in_region: LOG_MIN_OBJECT_SIZE as usize,
+            }))
+        }
+
+        /// Return the inner `[crate::util::metadata::MetadataSpec]` for the metadata type.
+        pub const fn as_spec(&self) -> &MetadataSpec {
+            &self.0
+        }
+
+        /// Return the number of bits for the metadata type.
+        pub const fn num_bits(&self) -> usize {
+            1 << Self::LOG_NUM_BITS
+        }
+    }
+    impl std::ops::Deref for VMGlobalCyclicReferenceCountSpec {
+        type Target = MetadataSpec;
+        fn deref(&self) -> &Self::Target {
+            self.as_spec()
+        }
+    }
+
     // Pinning bit: 1 bit per object, local
     define_vm_metadata_spec!(
         /// 1-bit local metadata for spaces that support pinning.
@@ -634,4 +763,45 @@ pub mod specs {
         1,
         LOG_BYTES_IN_PAGE
     );
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn reference_count_metadata_can_use_configurable_widths() {
+            let in_header = VMLocalReferenceCountSpec::in_header(0, 2);
+            assert!(in_header.is_in_header());
+            assert_eq!(in_header.num_bits(), 4);
+
+            let on_side = VMLocalReferenceCountSpec::side_first(0);
+            assert!(on_side.is_on_side());
+            assert_eq!(on_side.num_bits(), 1);
+            assert_eq!(on_side.extract_side_spec().log_num_of_bits, 0);
+
+            let word = VMLocalReferenceCountSpec::side_first(LOG_BITS_IN_WORD);
+            assert_eq!(word.num_bits(), crate::util::constants::BITS_IN_WORD);
+            assert_eq!(
+                word.extract_side_spec().log_num_of_bits,
+                crate::util::constants::LOG_BITS_IN_WORD
+            );
+        }
+
+        #[test]
+        fn cyclic_reference_count_metadata_is_global_side_only() {
+            let log = VMGlobalLogBitSpec::side_first();
+            let cyclic_rc = VMGlobalCyclicReferenceCountSpec::side_after(log.as_spec());
+
+            assert!(cyclic_rc.is_on_side());
+            assert!(cyclic_rc.extract_side_spec().is_global);
+            assert_eq!(
+                cyclic_rc.extract_side_spec().log_num_of_bits,
+                crate::util::constants::LOG_BITS_IN_WORD
+            );
+            assert_eq!(
+                cyclic_rc.extract_side_spec().offset,
+                side_metadata_offset_after(log.extract_side_spec())
+            );
+        }
+    }
 }

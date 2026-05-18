@@ -475,6 +475,10 @@ impl crate::vm::ObjectModel<MockVM> for MockVM {
     const LOCAL_FORWARDING_BITS_SPEC: VMLocalForwardingBitsSpec =
         VMLocalForwardingBitsSpec::in_header(0);
     const LOCAL_MARK_BIT_SPEC: VMLocalMarkBitSpec = VMLocalMarkBitSpec::in_header(0);
+    const LOCAL_REFERENCE_COUNT_SPEC: VMLocalReferenceCountSpec =
+        VMLocalReferenceCountSpec::in_header(0, crate::util::constants::LOG_BITS_IN_WORD);
+    const GLOBAL_CYCLIC_REFERENCE_COUNT_SPEC: VMGlobalCyclicReferenceCountSpec =
+        VMGlobalCyclicReferenceCountSpec::side_first();
     const LOCAL_LOS_MARK_NURSERY_SPEC: VMLocalLOSMarkNurserySpec =
         VMLocalLOSMarkNurserySpec::in_header(0);
 

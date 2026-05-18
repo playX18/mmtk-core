@@ -21,6 +21,9 @@ pub struct PlanConstraints {
     pub max_non_los_copy_bytes: usize,
     /// Does this plan use the log bit? See vm::ObjectModel::GLOBAL_LOG_BIT_SPEC.
     pub needs_log_bit: bool,
+    /// Does this plan need cyclic reference count side metadata? See
+    /// vm::ObjectModel::GLOBAL_CYCLIC_REFERENCE_COUNT_SPEC.
+    pub needs_cyclic_reference_count: bool,
     /// Some plans may allow benign race for testing mark bit, and this will lead to trace the same
     /// edge multiple times. If a plan allows tracing duplicated edges, we will not run duplicate
     /// edge check in extreme_assertions.
@@ -68,6 +71,7 @@ impl PlanConstraints {
             may_trace_duplicate_edges: cfg!(feature = "marksweep_as_nonmoving"),
             needs_forward_after_liveness: false,
             needs_log_bit: false,
+            needs_cyclic_reference_count: false,
             barrier: BarrierSelector::NoBarrier,
             // If we use mark sweep as non moving space, we need to prepare mutator. See [`common_prepare_func`].
             needs_prepare_mutator: cfg!(feature = "marksweep_as_nonmoving"),

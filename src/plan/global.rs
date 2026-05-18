@@ -23,6 +23,7 @@ use crate::util::heap::VMRequest;
 use crate::util::metadata::log_bit::UnlogBitsOperation;
 use crate::util::metadata::side_metadata::SideMetadataSanity;
 use crate::util::metadata::side_metadata::SideMetadataSpec;
+use crate::util::metadata::MetadataSpec;
 use crate::util::options::Options;
 use crate::util::options::PlanSelector;
 use crate::util::statistics::stats::Stats;
@@ -50,6 +51,9 @@ pub fn create_mutator<VM: VMBinding>(
             crate::plan::generational::immix::mutator::create_genimmix_mutator(tls, mmtk)
         }
         PlanSelector::MarkSweep => crate::plan::marksweep::mutator::create_ms_mutator(tls, mmtk),
+        PlanSelector::DeferredReferenceCounting => {
+            crate::plan::deferred_reference_counting::mutator::create_drc_mutator(tls, mmtk)
+        }
         PlanSelector::Immix => crate::plan::immix::mutator::create_immix_mutator(tls, mmtk),
         PlanSelector::PageProtect => {
             crate::plan::pageprotect::mutator::create_pp_mutator(tls, mmtk)
@@ -86,6 +90,10 @@ pub fn create_plan<VM: VMBinding>(
             as Box<dyn Plan<VM = VM>>,
         PlanSelector::MarkSweep => {
             Box::new(crate::plan::marksweep::MarkSweep::new(args)) as Box<dyn Plan<VM = VM>>
+        }
+        PlanSelector::DeferredReferenceCounting => {
+            Box::new(crate::plan::deferred_reference_counting::DeferredReferenceCounting::new(args))
+                as Box<dyn Plan<VM = VM>>
         }
         PlanSelector::Immix => {
             Box::new(crate::plan::immix::Immix::new(args)) as Box<dyn Plan<VM = VM>>
@@ -436,6 +444,12 @@ impl<VM: VMBinding> CreateSpecificPlanArgs<'_, VM> {
         unlog_traced_object: bool,
         vmrequest: VMRequest,
     ) -> PlanCreateSpaceArgs<'_, VM> {
+        let mut global_side_metadata_specs = self.global_side_metadata_specs.clone();
+        add_plan_required_global_metadata(
+            self.constraints,
+            *VM::VMObjectModel::GLOBAL_CYCLIC_REFERENCE_COUNT_SPEC,
+            &mut global_side_metadata_specs,
+        );
         PlanCreateSpaceArgs {
             name,
             zeroed,
@@ -443,7 +457,7 @@ impl<VM: VMBinding> CreateSpecificPlanArgs<'_, VM> {
             vmrequest,
             unlog_allocated_object,
             unlog_traced_object,
-            global_side_metadata_specs: self.global_side_metadata_specs.clone(),
+            global_side_metadata_specs,
             vm_map: self.global_args.vm_map,
             mmapper: self.global_args.mmapper,
             heap: self.global_args.heap,
@@ -538,6 +552,55 @@ impl<VM: VMBinding> CreateSpecificPlanArgs<'_, VM> {
         } else {
             self.get_normal_space_args(name, true, permission_exec, VMRequest::discontiguous())
         }
+    }
+}
+
+fn add_plan_required_global_metadata(
+    constraints: &PlanConstraints,
+    cyclic_reference_count_spec: MetadataSpec,
+    specs: &mut Vec<SideMetadataSpec>,
+) {
+    if constraints.needs_cyclic_reference_count {
+        if let MetadataSpec::OnSide(side_spec) = cyclic_reference_count_spec {
+            debug_assert!(side_spec.is_global);
+            if !specs.contains(&side_spec) {
+                specs.push(side_spec);
+            }
+        } else {
+            unreachable!("cyclic reference count metadata must be on side");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::VMGlobalCyclicReferenceCountSpec;
+
+    #[test]
+    fn plan_cyclic_ref_count_constraint_adds_global_side_metadata() {
+        let constraints = PlanConstraints {
+            needs_cyclic_reference_count: true,
+            ..PlanConstraints::default()
+        };
+        let mut specs = vec![];
+
+        let cyclic_rc = *VMGlobalCyclicReferenceCountSpec::side_first();
+        add_plan_required_global_metadata(&constraints, cyclic_rc, &mut specs);
+
+        assert!(specs.contains(&cyclic_rc.extract_side_spec()));
+        assert!(specs[0].is_global);
+    }
+
+    #[test]
+    fn plan_without_cyclic_ref_count_constraint_leaves_global_metadata_unchanged() {
+        let constraints = PlanConstraints::default();
+        let mut specs = vec![];
+
+        let cyclic_rc = *VMGlobalCyclicReferenceCountSpec::side_first();
+        add_plan_required_global_metadata(&constraints, cyclic_rc, &mut specs);
+
+        assert!(specs.is_empty());
     }
 }
 

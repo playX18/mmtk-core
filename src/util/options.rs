@@ -39,6 +39,8 @@ pub enum PlanSelector {
     GenImmix,
     /// A mark-sweep collector, which marks live objects and sweeps dead objects during GC.
     MarkSweep,
+    /// A deferred reference counting collector with coalesced heap and root updates.
+    DeferredReferenceCounting,
     /// A debugging collector that allocates memory at page granularity, and protects pages for dead objects
     /// to prevent future access.
     PageProtect,
